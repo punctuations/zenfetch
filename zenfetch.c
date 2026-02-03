@@ -69,6 +69,9 @@
 // Global noir mode flag (no colors, bold labels)
 static int noir_mode = 0;
 
+// Global print mode flag (no animation, instant display)
+static int print_mode = 0;
+
 // Configuration file paths
 #ifdef _WIN32
     #define CONFIG_LOCATION "C:\\ProgramData\\zenfetch\\location"
@@ -90,12 +93,13 @@ static void print_help(void) {
         "\n"
         "Options:\n"
         "  -o, --owner TEXT      set owner name in welcome message\n"
-        "  -l, --location TEXT   set location\n"
+        "  -L, --location TEXT   set location\n"
         "  -s, --support TEXT    set support contact info\n"
         "  -d, --docs URL        set documentation URL\n"
         "  -S, --no-support      hide support/docs section\n"
         "  -I, --hide-ip         hide NODE IP field\n"
         "  -n, --noir            noir mode: no colors, bold labels\n"
+        "  -p, --print           print mode: no animation, instant display\n"
         "  -h, --help            show this help\n"
         "\n"
 #ifdef _WIN32
@@ -123,27 +127,50 @@ static void run_cbonsai(void) {
     optind = 1;
 #endif
 
-    if (noir_mode) {
-        char *args[] = {
-            "cbonsai",
-            "-n",           // noir mode
-            "-b", "3",
-            "-p",           // print mode
-            "-l",           // live mode
-            "-t", "0.003",  // fast growth
-            NULL
-        };
-        cbonsai_run(8, args);
+    if (print_mode) {
+        // Print mode: no animation (no -l -t flags)
+        if (noir_mode) {
+            char *args[] = {
+                "cbonsai",
+                "-n",           // noir mode
+                "-b", "3",
+                "-p",           // print mode
+                NULL
+            };
+            cbonsai_run(5, args);
+        } else {
+            char *args[] = {
+                "cbonsai",
+                "-b", "3",
+                "-p",           // print mode
+                NULL
+            };
+            cbonsai_run(4, args);
+        }
     } else {
-        char *args[] = {
-            "cbonsai",
-            "-b", "3",
-            "-p",           // print mode
-            "-l",           // live mode
-            "-t", "0.003",  // fast growth
-            NULL
-        };
-        cbonsai_run(7, args);
+        // Normal mode: with animation
+        if (noir_mode) {
+            char *args[] = {
+                "cbonsai",
+                "-n",           // noir mode
+                "-b", "3",
+                "-p",           // print mode
+                "-l",           // live mode
+                "-t", "0.003",  // fast growth
+                NULL
+            };
+            cbonsai_run(8, args);
+        } else {
+            char *args[] = {
+                "cbonsai",
+                "-b", "3",
+                "-p",           // print mode
+                "-l",           // live mode
+                "-t", "0.003",  // fast growth
+                NULL
+            };
+            cbonsai_run(7, args);
+        }
     }
 }
 
@@ -728,6 +755,9 @@ static int parse_args(int argc, char *argv[],
         else if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--noir") == 0) {
             noir_mode = 1;
         }
+        else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--print") == 0) {
+            print_mode = 1;
+        }
         else if (strcmp(argv[i], "-S") == 0 || strcmp(argv[i], "--no-support") == 0) {
             *hide_support = 1;
         }
@@ -737,7 +767,7 @@ static int parse_args(int argc, char *argv[],
         else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--owner") == 0) && i + 1 < argc) {
             *cli_owner = argv[++i];
         }
-        else if ((strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--location") == 0) && i + 1 < argc) {
+        else if ((strcmp(argv[i], "-L") == 0 || strcmp(argv[i], "--location") == 0) && i + 1 < argc) {
             *cli_location = argv[++i];
         }
         else if ((strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--support") == 0) && i + 1 < argc) {
@@ -783,26 +813,28 @@ int main(int argc, char *argv[]) {
     // Parse command line options
     static struct option long_options[] = {
         {"owner",      required_argument, NULL, 'o'},
-        {"location",   required_argument, NULL, 'l'},
+        {"location",   required_argument, NULL, 'L'},
         {"support",    required_argument, NULL, 's'},
         {"docs",       required_argument, NULL, 'd'},
         {"no-support", no_argument,       NULL, 'S'},
         {"hide-ip",    no_argument,       NULL, 'I'},
         {"noir",       no_argument,       NULL, 'n'},
+        {"print",      no_argument,       NULL, 'p'},
         {"help",       no_argument,       NULL, 'h'},
         {0, 0, 0, 0}
     };
 
     int c;
-    while ((c = getopt_long(argc, argv, "o:l:s:d:SInh", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "o:L:s:d:SInph", long_options, NULL)) != -1) {
         switch (c) {
             case 'o': cli_owner = optarg; break;
-            case 'l': cli_location = optarg; break;
+            case 'L': cli_location = optarg; break;
             case 's': cli_support = optarg; break;
             case 'd': cli_docs = optarg; break;
             case 'S': hide_support = 1; break;
             case 'I': hide_ip = 1; break;
             case 'n': noir_mode = 1; break;
+            case 'p': print_mode = 1; break;
             case 'h':
                 print_help();
                 return 0;
