@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include "cbonsai.h"
+
 enum branchType {trunk, shootLeft, shootRight, dying, dead};
 
 struct config {
@@ -60,17 +62,17 @@ struct counters {
 };
 
 void delObjects(struct ncursesObjects *objects) {
-	// delete panels
-	del_panel(objects->basePanel);
-	del_panel(objects->treePanel);
-	del_panel(objects->messageBorderPanel);
-	del_panel(objects->messagePanel);
+	// delete panels (check for NULL first)
+	if (objects->basePanel) del_panel(objects->basePanel);
+	if (objects->treePanel) del_panel(objects->treePanel);
+	if (objects->messageBorderPanel) del_panel(objects->messageBorderPanel);
+	if (objects->messagePanel) del_panel(objects->messagePanel);
 
-	// delete windows
-	delwin(objects->baseWin);
-	delwin(objects->treeWin);
-	delwin(objects->messageBorderWin);
-	delwin(objects->messageWin);
+	// delete windows (check for NULL first)
+	if (objects->baseWin) delwin(objects->baseWin);
+	if (objects->treeWin) delwin(objects->treeWin);
+	if (objects->messageBorderWin) delwin(objects->messageBorderWin);
+	if (objects->messageWin) delwin(objects->messageWin);
 }
 
 void quit(struct config *conf, struct ncursesObjects *objects, int returnCode) {
@@ -194,8 +196,26 @@ void drawBase(WINDOW* baseWin, int baseType) {
 		mvwprintw(baseWin, 2, 0, "%s", "  (_________)  ");
 		break;
 	case 3:
-		// draw roots for nothing
-		mvwprintw(baseWin, 1, 0, "%s", ".::--===++****### #****+***--:.");
+		// draw trunk base and roots - trunk tapers from narrow top to wide roots
+		// Row 0: trunk continuation (bridges gap from tree window)
+		wattron(baseWin, COLOR_PAIR(3));
+		mvwprintw(baseWin, 0, 16, "%s", "###");
+		// Row 1: trunk slightly widens
+		mvwprintw(baseWin, 1, 15, "%s", "#####");
+		// Row 2: trunk base widens more
+		wattron(baseWin, COLOR_PAIR(8));
+		mvwprintw(baseWin, 2, 14, "%s", "*");
+		wattron(baseWin, COLOR_PAIR(3));
+		mvwprintw(baseWin, 2, 15, "%s", "#####");
+		wattron(baseWin, COLOR_PAIR(8));
+		mvwprintw(baseWin, 2, 20, "%s", "*");
+		// Row 3: roots spread out
+		mvwprintw(baseWin, 3, 0, "%s", ".::--==++");
+		wattron(baseWin, COLOR_PAIR(3));
+		mvwprintw(baseWin, 3, 9, "%s", "****#########****");
+		wattron(baseWin, COLOR_PAIR(8));
+		mvwprintw(baseWin, 3, 26, "%s", "++==--::.");
+		wattroff(baseWin, COLOR_PAIR(8));
 		break;
 	}
 }
@@ -214,11 +234,17 @@ void drawWins(int baseType, struct ncursesObjects *objects) {
 		baseWidth = 15;
 		baseHeight = 3;
 		break;
+	case 3:
+		baseWidth = 35;
+		baseHeight = 4;
+		break;
 	}
 
 	// calculate where base should go
 	getmaxyx(stdscr, rows, cols);
 	int baseOriginY = (rows - baseHeight);
+	// base 3 needs to overlap 1 row higher to connect with trunk (tree draws after moving)
+	if (baseType == 3) baseOriginY -= 1;
 	int baseOriginX = (cols / 2) - (baseWidth / 2);
 
 	// clean up old objects
@@ -228,9 +254,9 @@ void drawWins(int baseType, struct ncursesObjects *objects) {
 	objects->baseWin = newwin(baseHeight, baseWidth, baseOriginY, baseOriginX);
 	objects->treeWin = newwin(rows - baseHeight, cols, 0, 0);
 
-	// create tree and base panels
-	objects->basePanel = new_panel(objects->baseWin);
+	// create tree and base panels (base panel last so it's on top for overlap)
 	objects->treePanel = new_panel(objects->treeWin);
+	objects->basePanel = new_panel(objects->baseWin);
 
 	drawBase(objects->baseWin, baseType);
 }
@@ -304,38 +330,57 @@ void chooseColor(enum branchType type, WINDOW* treeWin, int isNior) {
 }
 
 // determine change in X and Y coordinates of a given branch
-void setDeltas(enum branchType type, int life, int age, int multiplier, int *returnDx, int *returnDy) {
+void setDeltas(enum branchType type, int life, int age, int multiplier, int baseType, int *returnDx, int *returnDy) {
 	int dx = 0;
 	int dy = 0;
 	int dice;
 	switch (type) {
 	case trunk: // trunk
-
-		// new or dead trunk
-		if (age <= 2 || life < 4) {
-			dy = 0;
-			dx = (rand() % 3) - 1;
-		}
-		// young trunk should grow wide
-		else if (age < (multiplier * 3)) {
-
-			// every (multiplier * 0.8) steps, raise tree to next level
-			if (age % (int) (multiplier * 0.5) == 0) dy = -1;
-			else dy = 0;
-
+		if (baseType == 3) {
+			// Base 3: organic curved trunk, not too tall
+			// Mix of upward and horizontal growth
 			roll(&dice, 10);
-			if (dice >= 0 && dice <=0) dx = -2;
-			else if (dice >= 1 && dice <= 3) dx = -1;
-			else if (dice >= 4 && dice <= 5) dx = 0;
-			else if (dice >= 6 && dice <= 8) dx = 1;
-			else if (dice >= 9 && dice <= 9) dx = 2;
-		}
-		// middle-aged trunk
-		else {
-			roll(&dice, 10);
-			if (dice > 2) dy = -1;
-			else dy = 0;
-			dx = (rand() % 3) - 1;
+			if (dice <= 4) dy = -1;  // 50% go up
+			else dy = 0;  // 50% stay level (spread out)
+
+			// Add natural curve - more sway as it grows
+			if (age <= 3) {
+				dx = 0;  // start straight at base
+				dy = -1; // always go up at base
+			} else if (age <= 10) {
+				roll(&dice, 10);
+				if (dice <= 2) dx = -1;
+				else if (dice >= 8) dx = 1;
+				else dx = 0;
+			} else {
+				roll(&dice, 10);
+				if (dice <= 3) dx = -1;
+				else if (dice >= 7) dx = 1;
+				else dx = 0;
+			}
+		} else {
+			// Original behavior for other bases
+			if (age <= 2 || life < 4) {
+				dy = 0;
+				dx = (rand() % 3) - 1;
+			}
+			else if (age < (multiplier * 3)) {
+				if (age % (int) (multiplier * 0.5) == 0) dy = -1;
+				else dy = 0;
+
+				roll(&dice, 10);
+				if (dice >= 0 && dice <=0) dx = -2;
+				else if (dice >= 1 && dice <= 3) dx = -1;
+				else if (dice >= 4 && dice <= 5) dx = 0;
+				else if (dice >= 6 && dice <= 8) dx = 1;
+				else if (dice >= 9 && dice <= 9) dx = 2;
+			}
+			else {
+				roll(&dice, 10);
+				if (dice > 2) dy = -1;
+				else dy = 0;
+				dx = (rand() % 3) - 1;
+			}
 		}
 		break;
 
@@ -404,31 +449,83 @@ char* chooseString(const struct config *conf, enum branchType type, int life, in
 
 	if (life < 4) type = dying;
 
-	switch(type) {
-	case trunk:
-		if (dy == 0) strcpy(branchStr, "/~");
-		else if (dx < 0) strcpy(branchStr, "\\|");
-		else if (dx == 0) strcpy(branchStr, "/|\\");
-		else if (dx > 0) strcpy(branchStr, "|/");
-		break;
-	case shootLeft:
-		if (dy > 0) strcpy(branchStr, "\\");
-		else if (dy == 0) strcpy(branchStr, "\\_");
-		else if (dx < 0) strcpy(branchStr, "\\|");
-		else if (dx == 0) strcpy(branchStr, "/|");
-		else if (dx > 0) strcpy(branchStr, "/");
-		break;
-	case shootRight:
-		if (dy > 0) strcpy(branchStr, "/");
-		else if (dy == 0) strcpy(branchStr, "_/");
-		else if (dx < 0) strcpy(branchStr, "\\|");
-		else if (dx == 0) strcpy(branchStr, "/|");
-		else if (dx > 0) strcpy(branchStr, "/");
-		break;
-	case dying:
-	case dead:
-		strncpy(branchStr, conf->leaves[rand() % conf->leavesSize], maxStrLen - 1);
-		branchStr[maxStrLen - 1] = '\0';
+	if (conf->baseType == 3) {
+		// Base 3: Dense ASCII art style using #, %, *, +, -, =, ., :
+		// Trunk tapers: thick at bottom (young), thin at top (old)
+		int age = conf->lifeStart - life;
+		switch(type) {
+		case trunk:
+			if (age <= 3) {
+				// Very bottom - widest
+				if (dx < 0) strcpy(branchStr, "%###");
+				else if (dx == 0) strcpy(branchStr, "###");
+				else strcpy(branchStr, "###%");
+			} else if (age <= 8) {
+				// Lower trunk - wide
+				if (dx < 0) strcpy(branchStr, "%##");
+				else if (dx == 0) strcpy(branchStr, "###");
+				else strcpy(branchStr, "##%");
+			} else if (age <= 15) {
+				// Middle trunk - medium
+				if (dx < 0) strcpy(branchStr, "%#");
+				else if (dx == 0) strcpy(branchStr, "##");
+				else strcpy(branchStr, "#%");
+			} else {
+				// Upper trunk - thin
+				if (dx < 0) strcpy(branchStr, "%");
+				else if (dx == 0) strcpy(branchStr, "#");
+				else strcpy(branchStr, "%");
+			}
+			break;
+		case shootLeft:
+			if (dy > 0) strcpy(branchStr, "%");
+			else if (dy == 0) strcpy(branchStr, "*+");
+			else if (dx < 0) strcpy(branchStr, "%*");
+			else if (dx == 0) strcpy(branchStr, "*%");
+			else if (dx > 0) strcpy(branchStr, "+");
+			break;
+		case shootRight:
+			if (dy > 0) strcpy(branchStr, "%");
+			else if (dy == 0) strcpy(branchStr, "+*");
+			else if (dx < 0) strcpy(branchStr, "*%");
+			else if (dx == 0) strcpy(branchStr, "%*");
+			else if (dx > 0) strcpy(branchStr, "+");
+			break;
+		case dying:
+			strcpy(branchStr, "-=:.");
+			break;
+		case dead:
+			strncpy(branchStr, conf->leaves[rand() % conf->leavesSize], maxStrLen - 1);
+			branchStr[maxStrLen - 1] = '\0';
+		}
+	} else {
+		// Original behavior for other bases
+		switch(type) {
+		case trunk:
+			if (dy == 0) strcpy(branchStr, "/~");
+			else if (dx < 0) strcpy(branchStr, "\\|");
+			else if (dx == 0) strcpy(branchStr, "/|\\");
+			else if (dx > 0) strcpy(branchStr, "|/");
+			break;
+		case shootLeft:
+			if (dy > 0) strcpy(branchStr, "\\");
+			else if (dy == 0) strcpy(branchStr, "\\_");
+			else if (dx < 0) strcpy(branchStr, "\\|");
+			else if (dx == 0) strcpy(branchStr, "/|");
+			else if (dx > 0) strcpy(branchStr, "/");
+			break;
+		case shootRight:
+			if (dy > 0) strcpy(branchStr, "/");
+			else if (dy == 0) strcpy(branchStr, "_/");
+			else if (dx < 0) strcpy(branchStr, "\\|");
+			else if (dx == 0) strcpy(branchStr, "/|");
+			else if (dx > 0) strcpy(branchStr, "/");
+			break;
+		case dying:
+		case dead:
+			strncpy(branchStr, conf->leaves[rand() % conf->leavesSize], maxStrLen - 1);
+			branchStr[maxStrLen - 1] = '\0';
+		}
 	}
 
 	return branchStr;
@@ -448,7 +545,7 @@ void branch(struct config *conf, struct ncursesObjects *objects, struct counters
 		life--;		// decrement remaining life counter
 		age = conf->lifeStart - life;
 
-		setDeltas(type, life, age, conf->multiplier, &dx, &dy);
+		setDeltas(type, life, age, conf->multiplier, conf->baseType, &dx, &dy);
 
 		int maxY = getmaxy(objects->treeWin);
 		if (dy > 0 && y > (maxY - 2)) dy--; // reduce dy if too close to the ground
@@ -808,7 +905,7 @@ char* createDefaultCachePath(void) {
 	return result;
 }
 
-int main(int argc, char* argv[]) {
+int cbonsai_run(int argc, char* argv[]) {
 	setlocale(LC_ALL, "");
 
 	struct config conf = {
@@ -860,11 +957,12 @@ int main(int argc, char* argv[]) {
 	struct ncursesObjects objects = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
 	char leavesInput[128] = "&";
+	int customLeaves = 0;  // track if user specified custom leaves
 
 	// parse arguments
 	int option_index = 0;
 	int c;
-	while ((c = getopt_long(argc, argv, ":lt:n:iw:Sm:b:c:M:L:ps:C:W:vh", long_options, &option_index)) != -1) {
+	while ((c = getopt_long(argc, argv, ":lt:niw:Sm:b:c:M:L:ps:C:W:vh", long_options, &option_index)) != -1) {
 		switch (c) {
 		case 'l':
 			conf.live = 1;
@@ -925,6 +1023,7 @@ int main(int argc, char* argv[]) {
 		case 'c':
 			strncpy(leavesInput, optarg, sizeof(leavesInput) - 1);
 			leavesInput[sizeof(leavesInput) - 1] = '\0';
+			customLeaves = 1;
 			break;
 		case 'M':
 			if (strtold(optarg, NULL) != 0) conf.multiplier = strtod(optarg, NULL);
@@ -1023,6 +1122,11 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	// For base 3, use special leaf characters if user didn't specify custom leaves
+	if (conf.baseType == 3 && !customLeaves) {
+		strcpy(leavesInput, ".,.:,::,-,--,*");
+	}
+
 	// delimit leaves on "," and add each token to the leaves[] list
 	char *token = strtok(leavesInput, ",");
 	while (token != NULL) {
@@ -1069,5 +1173,15 @@ int main(int argc, char* argv[]) {
 		finish(&conf, &myCounters);
 	}
 
-	quit(&conf, &objects, 0);
+	// cleanup without exit (for library usage)
+	delObjects(&objects);
+	free(conf.saveFile);
+	free(conf.loadFile);
+	return 0;
 }
+
+#ifndef CBONSAI_LIBRARY
+int main(int argc, char* argv[]) {
+	return cbonsai_run(argc, argv);
+}
+#endif
