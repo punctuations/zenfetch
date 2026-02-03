@@ -3,16 +3,140 @@
 #endif
 
 #include <stdlib.h>
-#include <curses.h>
 #include <locale.h>
-#include <panel.h>
-#include <getopt.h>
 #include <time.h>
 #include <string.h>
 #include <wchar.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
+#include <stdbool.h>
+
+#ifdef _WIN32
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <curses.h>
+    #include <panel.h>
+    // Windows getopt implementation (inline)
+    static char *optarg = NULL;
+    static int optind = 1;
+    static int optopt = 0;
+    static int opterr = 1;
+
+    struct option {
+        const char *name;
+        int has_arg;
+        int *flag;
+        int val;
+    };
+    #define no_argument 0
+    #define required_argument 1
+    #define optional_argument 2
+
+    static int getopt_long(int argc, char *const argv[], const char *optstring,
+                          const struct option *longopts, int *longindex) {
+        static int optpos = 1;
+        const char *arg;
+        (void)longopts;
+        (void)longindex;
+
+        optarg = NULL;
+
+        if (optind >= argc || argv[optind][0] != '-' || argv[optind][1] == '\0') {
+            return -1;
+        }
+        if (argv[optind][1] == '-' && argv[optind][2] == '\0') {
+            optind++;
+            return -1;
+        }
+
+        // Handle long options
+        if (argv[optind][1] == '-') {
+            const char *longopt = argv[optind] + 2;
+            for (int i = 0; longopts && longopts[i].name; i++) {
+                size_t len = strlen(longopts[i].name);
+                if (strncmp(longopt, longopts[i].name, len) == 0 &&
+                    (longopt[len] == '\0' || longopt[len] == '=')) {
+                    if (longopts[i].has_arg && longopt[len] == '=') {
+                        optarg = (char *)longopt + len + 1;
+                    } else if (longopts[i].has_arg == required_argument) {
+                        if (optind + 1 < argc) {
+                            optarg = argv[++optind];
+                        } else {
+                            optopt = longopts[i].val;
+                            optind++;
+                            return ':';
+                        }
+                    }
+                    if (longindex) *longindex = i;
+                    optind++;
+                    return longopts[i].val;
+                }
+            }
+            optopt = 0;
+            optind++;
+            return '?';
+        }
+
+        arg = argv[optind] + optpos;
+        optopt = *arg;
+
+        const char *p = strchr(optstring, *arg);
+        if (!p) {
+            if (argv[optind][++optpos] == '\0') {
+                optind++;
+                optpos = 1;
+            }
+            return '?';
+        }
+
+        if (p[1] == ':') {
+            if (argv[optind][optpos + 1] != '\0') {
+                optarg = (char *)&argv[optind][optpos + 1];
+                optind++;
+                optpos = 1;
+            } else if (optind + 1 < argc) {
+                optarg = argv[++optind];
+                optind++;
+                optpos = 1;
+            } else {
+                optind++;
+                optpos = 1;
+                return ':';
+            }
+        } else {
+            if (argv[optind][++optpos] == '\0') {
+                optind++;
+                optpos = 1;
+            }
+        }
+
+        return *arg;
+    }
+
+    // wcwidth replacement for Windows
+    static int wcwidth(wchar_t wc) {
+        if (wc == 0) return 0;
+        if (wc < 32 || (wc >= 0x7f && wc < 0xa0)) return -1;
+        if (wc >= 0x1100 &&
+            (wc <= 0x115f || wc == 0x2329 || wc == 0x232a ||
+             (wc >= 0x2e80 && wc <= 0xa4cf && wc != 0x303f) ||
+             (wc >= 0xac00 && wc <= 0xd7a3) ||
+             (wc >= 0xf900 && wc <= 0xfaff) ||
+             (wc >= 0xfe10 && wc <= 0xfe19) ||
+             (wc >= 0xfe30 && wc <= 0xfe6f) ||
+             (wc >= 0xff00 && wc <= 0xff60) ||
+             (wc >= 0xffe0 && wc <= 0xffe6) ||
+             (wc >= 0x20000 && wc <= 0x2fffd) ||
+             (wc >= 0x30000 && wc <= 0x3fffd)))
+            return 2;
+        return 1;
+    }
+#else
+    #include <curses.h>
+    #include <panel.h>
+    #include <getopt.h>
+    #include <unistd.h>
+#endif
 
 #include "cbonsai.h"
 
@@ -278,11 +402,16 @@ void updateScreen(float timeStep) {
 	update_panels();
 	doupdate();
 
+#ifdef _WIN32
+	// Windows: use Sleep (milliseconds)
+	Sleep((DWORD)(timeStep * 1000));
+#else
 	// convert given time into seconds and nanoseconds and sleep
 	struct timespec ts;
 	ts.tv_sec = timeStep / 1;
 	ts.tv_nsec = (timeStep - ts.tv_sec) * 1000000000;
 	nanosleep(&ts, NULL);	// sleep for given time
+#endif
 }
 
 // based on type of tree, determine what color a branch should be
@@ -774,7 +903,31 @@ void init(const struct config *conf, struct ncursesObjects *objects) {
 			int bg = COLOR_BLACK;
 			if (use_default_colors() != ERR) bg = -1;
 
-			// define color pairs
+#ifdef _WIN32
+			// Windows/PDCurses: explicitly map color pairs using COLOR_* constants
+			// to ensure correct colors regardless of platform color ordering
+			init_pair(1, COLOR_RED, bg);
+			init_pair(2, COLOR_GREEN, bg);
+			init_pair(3, COLOR_YELLOW, bg);     // trunk color
+			init_pair(4, COLOR_BLUE, bg);
+			init_pair(5, COLOR_MAGENTA, bg);
+			init_pair(6, COLOR_CYAN, bg);
+			init_pair(7, COLOR_WHITE, bg);
+			// Gray: use color 8 (bright black) if available, otherwise white
+			if (COLORS >= 16) {
+				init_pair(8, 8, bg);            // bright black = gray
+			} else {
+				init_pair(8, COLOR_WHITE, bg);  // fallback to white
+			}
+			init_pair(9, COLOR_RED, bg);        // bright red
+			init_pair(10, COLOR_GREEN, bg);     // bright green (leaves)
+			init_pair(11, COLOR_YELLOW, bg);    // bright yellow (trunk)
+			init_pair(12, COLOR_BLUE, bg);
+			init_pair(13, COLOR_MAGENTA, bg);
+			init_pair(14, COLOR_CYAN, bg);
+			init_pair(15, COLOR_WHITE, bg);
+#else
+			// Unix: define color pairs by index
 			for(int i=0; i<16; i++){
 				init_pair(i, i, bg);
 			}
@@ -790,6 +943,7 @@ void init(const struct config *conf, struct ncursesObjects *objects) {
 				init_pair(14, 6, bg);
 				init_pair(15, 7, bg);
 			}
+#endif
 		} else {
 			printf("%s", "Warning: terminal does not have color support.\n");
 		}
@@ -826,6 +980,62 @@ void printstdscr(int isNoir) {
 	int maxY, maxX;
 	getmaxyx(stdscr, maxY, maxX);
 
+#ifdef _WIN32
+	// Windows/PDCurses version - use simpler chtype-based approach
+	// Map PDCurses COLOR_* constants to ANSI color codes
+	// PDCurses uses standard curses color constants, but we need to map to ANSI
+	int curses_to_ansi[8] = {
+		30,  // COLOR_BLACK (0) -> ANSI black
+		31,  // COLOR_RED (1) -> ANSI red
+		32,  // COLOR_GREEN (2) -> ANSI green
+		33,  // COLOR_YELLOW (3) -> ANSI yellow
+		34,  // COLOR_BLUE (4) -> ANSI blue
+		35,  // COLOR_MAGENTA (5) -> ANSI magenta
+		36,  // COLOR_CYAN (6) -> ANSI cyan
+		37   // COLOR_WHITE (7) -> ANSI white
+	};
+
+	for (int y = 0; y < maxY; y++) {
+		for (int x = 0; x < maxX; x++) {
+			chtype ch = mvwinch(stdscr, y, x);
+			char c = (char)(ch & A_CHARTEXT);
+			attr_t attrs = ch & A_ATTRIBUTES;
+			short color_pair = (short)PAIR_NUMBER(ch);
+
+			short fg = 0;
+			short bg = 0;
+			pair_content(color_pair, &fg, &bg);
+
+			// enable bold if needed
+			if(attrs & A_BOLD) printf("\033[1m");
+			else printf("\033[0m");
+
+			// enable correct color (only if not in noir mode)
+			if (!isNoir) {
+				// Color pair 8 is gray - use ANSI bright black (90)
+				if (color_pair == 8) printf("\033[90m");
+				else if (fg == 0 || fg == COLOR_BLACK) printf("\033[0m");
+				else if (fg == COLOR_RED) printf("\033[31m");
+				else if (fg == COLOR_GREEN) printf("\033[32m");
+				else if (fg == COLOR_YELLOW) printf("\033[33m");
+				else if (fg == COLOR_BLUE) printf("\033[34m");
+				else if (fg == COLOR_MAGENTA) printf("\033[35m");
+				else if (fg == COLOR_CYAN) printf("\033[36m");
+				else if (fg == COLOR_WHITE) printf("\033[37m");
+				else if (fg >= 0 && fg <= 7) printf("\033[%dm", curses_to_ansi[fg]);
+				else if (fg >= 8 && fg <= 15) printf("\033[%dm", curses_to_ansi[fg - 8] + 60);
+			}
+
+			if (c != 0 && c != ' ') {
+				printf("%c", c);
+			} else {
+				printf(" ");
+			}
+		}
+		printf("\n");
+	}
+#else
+	// Unix/ncursesw version - use wide character functions
 	// loop through each character on stdscr
 	for (int y = 0; y < maxY; y++) {
 		for (int x = 0; x < maxX; x++) {
@@ -856,15 +1066,16 @@ void printstdscr(int isNoir) {
 
 			printf("%ls", wch);
 
-			short clen = wcslen(wch);
+			short clen = (short)wcslen(wch);
 			short cwidth = 0;
 			for (int i = 0; i < clen; ++i)
-				cwidth += wcwidth(wch[i]);
+				cwidth += (short)wcwidth(wch[i]);
 
 			if (cwidth > 1)
 				x += cwidth - 1;
 		}
 	}
+#endif
 
 	printf("\033[0m\n");
 }
@@ -874,6 +1085,29 @@ char* createDefaultCachePath(void) {
 	size_t envlen;
 	char* toAppend;
 
+#ifdef _WIN32
+	// Windows: use LOCALAPPDATA
+	const char* env_LOCALAPPDATA = getenv("LOCALAPPDATA");
+	if (env_LOCALAPPDATA && (envlen = strlen(env_LOCALAPPDATA))) {
+		toAppend = "\\cbonsai";
+
+		result = malloc(envlen + strlen(toAppend) + 1);
+		strncpy(result, env_LOCALAPPDATA, envlen);
+		strcpy(result + envlen, toAppend);
+		return result;
+	}
+
+	// fallback to APPDATA
+	const char* env_APPDATA = getenv("APPDATA");
+	if (env_APPDATA && (envlen = strlen(env_APPDATA))) {
+		toAppend = "\\cbonsai";
+
+		result = malloc(envlen + strlen(toAppend) + 1);
+		strncpy(result, env_APPDATA, envlen);
+		strcpy(result + envlen, toAppend);
+		return result;
+	}
+#else
 	// follow XDG Base Directory Specification for default cache file path
 	const char* env_XDG_CACHE_HOME = getenv("XDG_CACHE_HOME");
 	if (env_XDG_CACHE_HOME && (envlen = strlen(env_XDG_CACHE_HOME))) {
@@ -897,8 +1131,9 @@ char* createDefaultCachePath(void) {
 		strcpy(result + envlen, toAppend);
 		return result;
 	}
+#endif
 
-	// if we also don't have $HOME, just use ./cbonsai
+	// fallback: just use ./cbonsai
 	toAppend = "cbonsai";
 	result = malloc(strlen(toAppend) + 1);
 	strcpy(result, toAppend);

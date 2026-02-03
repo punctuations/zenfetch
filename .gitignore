@@ -1,3 +1,45 @@
+# Linux/macOS binaries
 cbonsai
 cbonsai_**
 zenfetch
+
+# Windows executables
+*.exe
+
+# Object files
+*.o
+*.obj
+
+# Libraries
+*.lib
+*.a
+*.dll
+
+# CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Visual Studio
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+Debug/
+Release/
+x64/
+x86/
+*.pdb
+*.ilk
+
+# vcpkg
+vcpkg_installed/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~

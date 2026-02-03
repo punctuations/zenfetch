@@ -58,7 +58,9 @@ DOCS               docs.example.com
 
 ## Installation
 
-### Dependencies
+### Linux / macOS
+
+#### Dependencies
 
 zenfetch requires ncurses. Install the development libraries for your system:
 
@@ -80,7 +82,7 @@ sudo dnf install ncurses-devel
 brew install ncurses
 ```
 
-### Build & Install
+#### Build & Install
 
 ```bash
 git clone https://github.com/punctuations/zenfetch
@@ -95,6 +97,51 @@ To install for the current user only:
 ```bash
 make install PREFIX=~/.local
 ```
+
+### Windows
+
+#### Option 1: Using vcpkg and CMake (Recommended)
+
+1. Install [vcpkg](https://vcpkg.io/) and [CMake](https://cmake.org/)
+
+2. Install PDCurses via vcpkg:
+   ```cmd
+   vcpkg install pdcurses:x64-windows
+   ```
+
+3. Build with CMake:
+   ```cmd
+   mkdir build
+   cd build
+   cmake .. -DCMAKE_TOOLCHAIN_FILE=[vcpkg-root]/scripts/buildsystems/vcpkg.cmake
+   cmake --build . --config Release
+   ```
+
+4. The executables will be in `build\Release\`
+
+#### Option 2: Using MSYS2/MinGW
+
+1. Install [MSYS2](https://www.msys2.org/)
+
+2. In MSYS2 MINGW64 terminal:
+   ```bash
+   pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-pdcurses mingw-w64-x86_64-cmake make
+   ```
+
+3. Build:
+   ```bash
+   mkdir build && cd build
+   cmake .. -G "MinGW Makefiles"
+   cmake --build .
+   ```
+
+#### Option 3: Visual Studio
+
+1. Install PDCurses (download from https://pdcurses.org/ or use vcpkg)
+
+2. Open the project in Visual Studio and configure include/library paths
+
+3. Build the solution
 
 ## Usage
 
@@ -148,7 +195,9 @@ zenfetch --hide-ip --no-support
 
 ### Configuration Files
 
-For persistent configuration, create files in `/etc/zenfetch/`:
+For persistent configuration, create config files:
+
+**Linux/macOS:** `/etc/zenfetch/`
 
 ```bash
 sudo mkdir -p /etc/zenfetch
@@ -156,6 +205,16 @@ echo "Your Name" | sudo tee /etc/zenfetch/owner
 echo "Building A, Room 101" | sudo tee /etc/zenfetch/location
 echo "support@example.com" | sudo tee /etc/zenfetch/support
 echo "docs.example.com" | sudo tee /etc/zenfetch/docs
+```
+
+**Windows:** `C:\ProgramData\zenfetch\`
+
+```cmd
+mkdir C:\ProgramData\zenfetch
+echo Your Name > C:\ProgramData\zenfetch\owner
+echo Building A, Room 101 > C:\ProgramData\zenfetch\location
+echo support@example.com > C:\ProgramData\zenfetch\support
+echo docs.example.com > C:\ProgramData\zenfetch\docs
 ```
 
 CLI options override config file values.
