@@ -152,11 +152,12 @@ Display system info with a bonsai tree.
 
 Options:
   -o, --owner TEXT      set owner name in welcome message
-  -l, --location TEXT   set location
+  -L, --location TEXT   set location
   -s, --support TEXT    set support contact info
   -d, --docs URL        set documentation URL
   -S, --no-support      hide support/docs section
   -I, --hide-ip         hide NODE IP field
+  -p, --print           print mode
   -n, --noir            noir mode: no colors, bold labels
   -h, --help            show this help
 ```
