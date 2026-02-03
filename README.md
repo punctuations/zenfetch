@@ -83,10 +83,9 @@ brew install ncurses
 ### Build & Install
 
 ```bash
-git clone https://github.com/yourusername/zenfetch
+git clone https://github.com/punctuations/zenfetch
 cd zenfetch
 make
-sudo make install
 ```
 
 This installs both `zenfetch` and `cbonsai` to `/usr/local/bin`.
